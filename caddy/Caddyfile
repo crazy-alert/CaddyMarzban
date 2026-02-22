@@ -5,11 +5,11 @@
     persist_config off
 
 # Оптимизация TLS
-    servers {
-                protocol {
-                             experimental_http3
-                         }
-            }
+    servers :443 {
+                 protocol {
+                              experimental_http3
+                          }
+     }
 }
 
 # Замените на ваш домен
