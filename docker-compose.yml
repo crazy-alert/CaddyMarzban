@@ -12,7 +12,7 @@ services:
     volumes:
       - ./www:/www
       - /var/lib/marzban:/var/lib/marzban
-      - ./marzban:/app
+#      - ./marzban:/app
       - /var/log/marzban:/var/log/marzban
     networks:
       - internal
@@ -31,8 +31,8 @@ services:
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - ./www:/var/www/html
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./caddy/data:/data
+      - ./caddy/config:/config
       - /var/log/caddy:/var/log/caddy
     networks:
       - internal
