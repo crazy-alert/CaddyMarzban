@@ -1,9 +1,8 @@
 #!/bin/bash
-set -e
-# Конфигурация
-INSTALL_DIR="/opt/CaddyMarzban"
-REPO_URL="git@github.com:crazy-alert/CaddyMarzban.git" #
 
+# Конфигурация
+REPO_URL="https://github.com/crazy-alert/CaddyMarzban.git"  # <-- ИСПОЛЬЗУЙТЕ HTTPS URL!
+INSTALL_DIR="/opt/CaddyMarzban"                         # <-- Директория для установки
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -35,7 +34,25 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# Функция для проверки и преобразования URL
+check_repo_url() {
+    if [[ "$REPO_URL" == git@* ]]; then
+        warn "Обнаружен SSH URL. Рекомендуется использовать HTTPS для простоты установки."
+        read -p "Хотите преобразовать в HTTPS? (y/n): " convert_url
+        if [[ $convert_url =~ ^[Yy]$ ]]; then
+            # Преобразуем git@github.com:username/repo.git -> https://github.com/username/repo.git
+            REPO_URL=$(echo "$REPO_URL" | sed 's/^git@\(.*\):\(.*\)/https:\/\/\1\/\2/')
+            log "URL преобразован в: $REPO_URL"
+        else
+            warn "Продолжаем с SSH URL. Убедитесь, что SSH ключи настроены!"
+        fi
+    fi
+}
+
 log "Начинаем установку..."
+
+# Проверка URL репозитория
+check_repo_url
 
 # Обновление пакетов
 log "Обновление списка пакетов..."
@@ -50,7 +67,15 @@ apt-get install -y \
     git \
     mc \
     nano \
-    software-properties-common
+    software-properties-common \
+    ufw
+
+# Настройка UFW (фаервол)
+log "Настройка базового фаервола..."
+ufw allow 22/tcp comment 'SSH'
+ufw allow 80/tcp comment 'HTTP'
+ufw allow 443/tcp comment 'HTTPS'
+ufw --force enable
 
 # Установка Docker
 if ! command -v docker &> /dev/null; then
@@ -110,7 +135,7 @@ filter = docker-auth
 logpath = /var/lib/docker/containers/*/*-json.log
 EOF
 
-    # Создание фильтра для Docker (опционально)
+    # Создание фильтра для Docker
     cat > /etc/fail2ban/filter.d/docker-auth.conf << EOF
 [Definition]
 failregex = ^.*Failed password for .* from <HOST> port .* ssh2$
@@ -118,38 +143,9 @@ failregex = ^.*Failed password for .* from <HOST> port .* ssh2$
 ignoreregex =
 EOF
 
-    # Настройка автоматических обновлений для fail2ban (опционально)
-    cat > /etc/cron.daily/fail2ban-update << 'EOF'
-#!/bin/bash
-# Ежедневное обновление списков блокировки
-fail2ban-client unban --all > /dev/null 2>&1
-systemctl reload fail2ban
-EOF
-    chmod +x /etc/cron.daily/fail2ban-update
-
     # Включение и запуск fail2ban
     systemctl enable fail2ban
     systemctl restart fail2ban
-
-    # Настройка уведомлений по email (опционально)
-    read -p "Настроить email уведомления о блокировках? (y/n): " setup_email
-    if [[ $setup_email =~ ^[Yy]$ ]]; then
-        read -p "Введите email для уведомлений: " admin_email
-
-        # Установка mailutils для отправки писем
-        apt-get install -y mailutils
-
-        # Добавление email в конфигурацию fail2ban
-        sed -i "s/^# destemail = .*/destemail = $admin_email/" /etc/fail2ban/jail.local
-        sed -i "s/^# action = .*/action = %(action_mwl)s/" /etc/fail2ban/jail.local
-
-        systemctl restart fail2ban
-        log "Email уведомления настроены на $admin_email"
-    fi
-
-    # Информация о статусе
-    info "Fail2ban установлен и запущен. Статус можно проверить командой: fail2ban-client status"
-    info "Заблокированные IP: fail2ban-client status sshd"
 
     log "Fail2ban успешно установлен и настроен"
 else
@@ -167,25 +163,38 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     git pull
 else
     log "Клонирование репозитория..."
-    git clone "$REPO_URL" "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
+
+    # Пробуем клонировать с обработкой ошибок
+    if git clone "$REPO_URL" "$INSTALL_DIR"; then
+        log "Репозиторий успешно склонирован"
+        cd "$INSTALL_DIR"
+    else
+        error "Не удалось клонировать репозиторий."
+        error "Проверьте URL: $REPO_URL"
+        error ""
+        error "Возможные решения:"
+        error "1. Используйте HTTPS URL (https://github.com/username/repo.git)"
+        error "2. Если используете SSH, настройте ключи: ssh-keygen -t ed25519 -C \"your_email@example.com\""
+        error "3. Для публичных репозиториев можно использовать: git clone https://github.com/username/repo.git"
+        exit 1
+    fi
+fi
+
+# Проверяем наличие .env.example
+if [ ! -f ".env.example" ]; then
+    error "Файл .env.example не найден в репозитории!"
+    ls -la
+    exit 1
 fi
 
 # Копирование .env.example в .env если .env не существует
 if [ ! -f ".env" ]; then
-    if [ -f ".env.example" ]; then
-        log "Копирование .env.example в .env..."
-        cp .env.example .env
-    else
-        error "Файл .env.example не найден в репозитории"
-        exit 1
-    fi
+    log "Копирование .env.example в .env..."
+    cp .env.example .env
+    log "Файл .env создан"
 else
     log "Файл .env уже существует"
 fi
-
-# Запрос данных у пользователя
-log "Настройка конфигурации..."
 
 # Функция для обновления переменной в .env
 update_env_var() {
@@ -205,6 +214,9 @@ update_env_var() {
         fi
     fi
 }
+
+# Запрос данных у пользователя
+log "Настройка конфигурации..."
 
 # CADDY_DOMAIN
 read -p "Введите домен для Caddy (например, example.com): " CADDY_DOMAIN
@@ -228,22 +240,36 @@ else
     log "Telegram бот не будет настроен"
 fi
 
+# Проверка наличия docker-compose.yml
+if [ ! -f "docker-compose.yml" ]; then
+    error "Файл docker-compose.yml не найден в репозитории!"
+    ls -la
+    exit 1
+fi
+
 # Запуск docker-compose
 log "Запуск docker-compose..."
-if [ -f "docker-compose.yml" ]; then
-    docker-compose up -d
+docker-compose up -d
 
-    # Добавление в автозапуск
-    log "Настройка автозапуска..."
+# Проверка успешности запуска
+if [ $? -eq 0 ]; then
+    log "Docker Compose успешно запущен"
+else
+    error "Ошибка при запуске Docker Compose"
+    exit 1
+fi
 
-    # Создание systemd сервиса для автозапуска
-    cat > /etc/systemd/system/myapp-docker.service << EOF
+# Добавление в автозапуск
+log "Настройка автозапуска..."
+
+# Создание systemd сервиса для автозапуска
+cat > /etc/systemd/system/caddy-marzban.service << EOF
 [Unit]
-Description=MyApp Docker Compose
+Description=Caddy Marzban Docker Compose
 Requires=docker.service
-After=docker.service
-Wants=fail2ban.service
-After=fail2ban.service
+After=docker.service network-online.target
+Wants=network-online.target
+Before=fail2ban.service
 
 [Service]
 Type=oneshot
@@ -251,40 +277,36 @@ RemainAfterExit=yes
 WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/local/bin/docker-compose up -d
 ExecStop=/usr/local/bin/docker-compose down
+ExecReload=/usr/local/bin/docker-compose restart
 StandardOutput=journal
+User=root
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    systemctl enable myapp-docker.service
-
-    log "Docker Compose запущен и добавлен в автозагрузку"
-else
-    error "Файл docker-compose.yml не найден в репозитории"
-    exit 1
-fi
+systemctl daemon-reload
+systemctl enable caddy-marzban.service
 
 # Финальная информация
 log "Установка завершена!"
 
-# Вывод информации о fail2ban если установлен
-if [[ $setup_fail2ban =~ ^[Yy]$ ]]; then
-    echo ""
-    info "=== FAIL2BAN ИНФОРМАЦИЯ ==="
-    info "Проверка статуса: fail2ban-client status"
-    info "Просмотр заблокированных IP: fail2ban-client status sshd"
-    info "Разблокировать IP: fail2ban-client set sshd unbanip <IP>"
-    info "Логи fail2ban: tail -f /var/log/fail2ban.log"
-    echo ""
-fi
+echo ""
+info "=== ИНФОРМАЦИЯ О СИСТЕМЕ ==="
+info "Директория установки: $INSTALL_DIR"
+info "Домен: $CADDY_DOMAIN"
+info "Email: $CADDY_EMAIL"
 
-info "=== ПРИЛОЖЕНИЕ ==="
-info "Приложение доступно по адресу: http://$CADDY_DOMAIN"
-info "Для просмотра логов: cd $INSTALL_DIR && docker-compose logs -f"
-info "Для остановки: cd $INSTALL_DIR && docker-compose down"
-info "Для перезапуска: cd $INSTALL_DIR && docker-compose restart"
+echo ""
+info "=== УПРАВЛЕНИЕ ПРИЛОЖЕНИЕМ ==="
+info "Просмотр логов: cd $INSTALL_DIR && docker-compose logs -f"
+info "Остановка: cd $INSTALL_DIR && docker-compose down"
+info "Запуск: cd $INSTALL_DIR && docker-compose up -d"
+info "Перезапуск: cd $INSTALL_DIR && docker-compose restart"
+
+echo ""
+info "=== ССЫЛКИ ==="
+info "Сайт: https://$CADDY_DOMAIN"
 
 # Самоуничтожение скрипта
 log "Удаляем скрипт установки..."
