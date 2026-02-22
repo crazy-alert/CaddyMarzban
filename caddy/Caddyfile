@@ -3,7 +3,11 @@
 
 # Глобальные логи
     log {
-            output file /var/log/caddy/access.log
+            output file /var/log/caddy/access.log {
+                                                      roll_size 50MB
+                                                      roll_keep 5
+                                                      roll_keep_for 720h  # 30 дней
+                                                  }
         }
 
 # Опции для всех прокси
@@ -12,39 +16,62 @@
             }
 }
 
-# Основной домен - панель по /dash
+# Основной домен
 {$CADDY_DOMAIN} {
-                # Заглушка для корня сайта (example.com/)
+                # Заглушка для корня
                 handle_path / {
                               root * /usr/share/caddy/www
                               file_server
-                              }
+                              header {
+                                     -Server
+                                     }
+    }
 
-                # Панель управления по /dash/ (перенаправляет на /dashboard/ в Marzban)
+                # Панель управления по /dash
                 handle_path /dash/* {
-                                    # Переписываем путь: убираем /dash и добавляем /dashboard
                                     uri strip_prefix /dash
                                     rewrite * /dashboard{path}
-                                    reverse_proxy marzban:8000
+                                    reverse_proxy marzban:8000 {
+                                                               header_up Host {host}
+                                                               header_up X-Real-IP {remote}
+                                                               header_up X-Forwarded-For {remote}
+                                                               header_up X-Forwarded-Proto {scheme}
+        }
 
                                     header {
                                            Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
                                            X-Content-Type-Options nosniff
                                            X-Frame-Options DENY
+                                           Referrer-Policy strict-origin-when-cross-origin
                                            }
     }
 
-                # Редирект с /dash на /dash/ (для красоты)
+                # Редирект с /dash на /dash/
                 handle_path /dash {
                                   redir /dash/ 301
                                   }
 
+                # Логи запросов для домена
                 log {
-                    output file /var/log/caddy/main.log
-                    }
+                    output file /var/log/caddy/domains/{$CADDY_DOMAIN}.log {
+                                                                           roll_size 10MB
+                                                                           roll_keep 5
+                                                                           }
+    }
+
+                # Логи ошибок
+                handle_errors {
+                              log {
+                                  output file /var/log/caddy/errors.log {
+                                                                        roll_size 10MB
+                                                                        roll_keep 5
+                                                                        }
+        }
+                              respond "{err.status_code} {err.status_text}"
+                              }
 }
 
-# Shadowsocks (порт 1080)
+# Shadowsocks
 :1080 {
       reverse_proxy marzban:1080 {
                                  transport http {
@@ -54,11 +81,14 @@
     }
 
       log {
-          output file /var/log/caddy/shadowsocks.log
-          }
+          output file /var/log/caddy/shadowsocks.log {
+                                                     roll_size 10MB
+                                                     roll_keep 3
+                                                     }
+    }
 }
 
-# Trojan/Shadowsocks+TLS (порт 8443)
+# Trojan/Shadowsocks+TLS
 :8443 {
       reverse_proxy marzban:8443 {
                                  transport http {
@@ -68,11 +98,14 @@
     }
 
       log {
-          output file /var/log/caddy/trojan.log
-          }
+          output file /var/log/caddy/trojan.log {
+                                                roll_size 10MB
+                                                roll_keep 3
+                                                }
+    }
 }
 
-# Альтернативный порт (2096)
+# Альтернативный порт
 :2096 {
       reverse_proxy marzban:2096 {
                                  transport http {
@@ -82,11 +115,14 @@
     }
 
       log {
-          output file /var/log/caddy/alt.log
-          }
+          output file /var/log/caddy/alt.log {
+                                             roll_size 10MB
+                                             roll_keep 3
+                                             }
+    }
 }
 
-# Диапазон портов для VMess/VLESS (10000-10100)
+# Диапазон портов для VMess/VLESS
 :10000-10100 {
              reverse_proxy marzban:{port} {
                                           transport http {
@@ -96,8 +132,11 @@
     }
 
              log {
-                 output file /var/log/caddy/range.log
-                 }
+                 output file /var/log/caddy/range/port-{port}.log {
+                                                                  roll_size 5MB
+                                                                  roll_keep 2
+                                                                  }
+    }
 }
 
 # Заглушка для прямого IP
@@ -105,7 +144,16 @@
           root * /usr/share/caddy/www
           file_server
 
+          # Блокируем доступ по IP (возвращаем 403)
+          @deny {
+                not remote_ip private_ranges
+                }
+          respond @deny 403
+
           log {
-              output file /var/log/caddy/ip.log
-              }
+              output file /var/log/caddy/ip-access.log {
+                                                       roll_size 10MB
+                                                       roll_keep 3
+                                                       }
+    }
 }
