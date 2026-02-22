@@ -19,6 +19,7 @@ services:
   caddy:
     image: caddy:latest
     restart: unless-stopped
+    env_file: .env
     ports:
       - "80:80"
       - "443:443"
@@ -28,7 +29,7 @@ services:
       - "10000-10100:10000-10100"  # Диапазон через Caddy
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
-      - ./caddy/www:/usr/share/caddy/www
+      - ./caddy/www:/var/www/html
       - caddy_data:/data
       - caddy_config:/config
       - /var/log/caddy:/var/log/caddy

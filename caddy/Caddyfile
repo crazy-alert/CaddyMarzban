@@ -13,58 +13,53 @@
 }
 
 # Замените на ваш домен
-{$CADDY_DOMAIN}{
-# Логирование (полезно для отладки)
-    log {
-            output file /var/log/caddy/access.log{
-                                                     roll_size 5MB
-                                                     roll_keep 2
-             }
-        }
+{$CADDY_DOMAIN} {
+                # Логирование (полезно для отладки)
+                log {
+                    output file /var/log/caddy/access.log {
+                                                          roll_size 5MB
+                                                          roll_keep 2
+                                                          }
+    }
 
-# Современные заголовки безопасности
-    header {
-           # Защита от XSS и кликджекинга
-               X-Content-Type-Options nosniff
-               X-Frame-Options DENY
-               Referrer-Policy no-referrer-when-downgrade
-           # HSTS (включать только если уверены, что не откатитесь на HTTP)
-               Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-           # Удаление заголовка сервера для маскировки
-               -Server
-           }
-
-# Маскировка: Обычные посетители видят статический сайт (например, лендинг или блог)
-# Положите файлы сайта в /var/www/html на сервере и пробросьте в docker-compose
-    root * /var/www/html
-    file_server
-
-# Проксирование панели управления Marzban (по порту 8000)
-# Рекомендуется использовать сложный путь для входа в панель, если это возможно,
-# либо оставить как есть, если доступ ограничен по IP
-    handle /dashboard/* {
-                            reverse_proxy marzban:8000
-                        }
-
-# Обработка входящих соединений Xray (VLESS/VMess через WebSocket)
-# Замените /ws-path на путь, указанный в настройках Inbound в Marzban
-    handle /ws-path {
-                        reverse_proxy marzban:10000 {
-                                                        header_up Host {host}
-                                                        header_up X-Real-IP {remote_host}
-                                                        header_up X-Forwarded-For {remote_host}
-                                                    }
-                    }
-
-# Обработка gRPC (если используется)
-# Замените /grpc-service на ваше Service Name
-    handle /grpc-service/* {
-                               reverse_proxy h2c://marzban:20000
+                    # Современные заголовки безопасности
+                    header {
+                           # Защита от XSS и кликджекинга
+                           X-Content-Type-Options nosniff
+                           X-Frame-Options DENY
+                           Referrer-Policy no-referrer-when-downgrade
+                           # HSTS (включать только если уверены, что не откатитесь на HTTP)
+                           Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                           # Удаление заголовка сервера для маскировки
+                           -Server
                            }
 
-# Ошибка 404 для всех остальных запросов к инфраструктурным путям
-    handle_errors {
-                      rewrite * /{err.status_code}.html
-                      file_server
-                  }
+                    # Маскировка: обычные посетители видят статический сайт
+                    root * /var/www/html
+                    file_server
+
+                    # Проксирование панели управления Marzban
+                    handle /dashboard/* {
+                                        reverse_proxy marzban:8000
+                                        }
+
+                    # Обработка входящих соединений Xray (WebSocket)
+                    handle /ws-path {
+                                    reverse_proxy marzban:10000 {
+                                                                header_up Host {host}
+                                                                header_up X-Real-IP {remote_host}
+                                                                header_up X-Forwarded-For {remote_host}
+        }
+    }
+
+                    # Обработка gRPC (если используется)
+                    handle /grpc-service/* {
+                                           reverse_proxy h2c://marzban:20000
+                                           }
+
+                # Ошибка 404
+                handle_errors {
+                              rewrite * /{err.status_code}.html
+                                                          file_server
+                              }
 }
