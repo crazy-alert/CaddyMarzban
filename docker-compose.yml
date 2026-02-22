@@ -1,0 +1,44 @@
+services:
+  marzban:
+    image: gozargah/marzban:latest
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "8000"   # API панели
+      - "1080"   # Shadowsocks
+      - "8443"   # Trojan/Shadowsocks+TLS
+      - "2096"   # Альтернативный
+      - "10000-10100"  # Диапазон для VMess/VLESS
+    volumes:
+      - /var/lib/marzban:/var/lib/marzban
+      - ./marzban:/app
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "1080:1080"  # Shadowsocks через Caddy
+      - "8443:8443"  # Trojan через Caddy
+      - "2096:2096"  # Альтернативный через Caddy
+      - "10000-10100:10000-10100"  # Диапазон через Caddy
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy/www:/usr/share/caddy/www
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+    depends_on:
+      - marzban
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    driver: bridge

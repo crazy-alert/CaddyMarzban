@@ -1,0 +1,111 @@
+{
+    email {$CADDY_EMAIL}
+
+# Глобальные логи
+    log {
+            output file /var/log/caddy/access.log
+        }
+
+# Опции для всех прокси
+    servers {
+                trusted_proxies static private_ranges
+            }
+}
+
+# Основной домен - панель по /dash
+{$CADDY_DOMAIN} {
+                # Заглушка для корня сайта (example.com/)
+                handle_path / {
+                              root * /usr/share/caddy/www
+                              file_server
+                              }
+
+                # Панель управления по /dash/ (перенаправляет на /dashboard/ в Marzban)
+                handle_path /dash/* {
+                                    # Переписываем путь: убираем /dash и добавляем /dashboard
+                                    uri strip_prefix /dash
+                                    rewrite * /dashboard{path}
+                                    reverse_proxy marzban:8000
+
+                                    header {
+                                           Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                                           X-Content-Type-Options nosniff
+                                           X-Frame-Options DENY
+                                           }
+    }
+
+                # Редирект с /dash на /dash/ (для красоты)
+                handle_path /dash {
+                                  redir /dash/ 301
+                                  }
+
+                log {
+                    output file /var/log/caddy/main.log
+                    }
+}
+
+# Shadowsocks (порт 1080)
+:1080 {
+      reverse_proxy marzban:1080 {
+                                 transport http {
+                                                read_buffer 4096
+                                                write_buffer 4096
+                                                }
+    }
+
+      log {
+          output file /var/log/caddy/shadowsocks.log
+          }
+}
+
+# Trojan/Shadowsocks+TLS (порт 8443)
+:8443 {
+      reverse_proxy marzban:8443 {
+                                 transport http {
+                                                read_buffer 4096
+                                                write_buffer 4096
+                                                }
+    }
+
+      log {
+          output file /var/log/caddy/trojan.log
+          }
+}
+
+# Альтернативный порт (2096)
+:2096 {
+      reverse_proxy marzban:2096 {
+                                 transport http {
+                                                read_buffer 4096
+                                                write_buffer 4096
+                                                }
+    }
+
+      log {
+          output file /var/log/caddy/alt.log
+          }
+}
+
+# Диапазон портов для VMess/VLESS (10000-10100)
+:10000-10100 {
+             reverse_proxy marzban:{port} {
+                                          transport http {
+                                                         read_buffer 4096
+                                                         write_buffer 4096
+                                                         }
+    }
+
+             log {
+                 output file /var/log/caddy/range.log
+                 }
+}
+
+# Заглушка для прямого IP
+:80, :443 {
+          root * /usr/share/caddy/www
+          file_server
+
+          log {
+              output file /var/log/caddy/ip.log
+              }
+}
