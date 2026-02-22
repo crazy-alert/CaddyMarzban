@@ -10,9 +10,10 @@ services:
       - "2096"   # Альтернативный
       - "10000-10100"  # Диапазон для VMess/VLESS
     volumes:
+      - ./marzban/main.py.patched:/code/main.py
       - ./www:/www
       - /var/lib/marzban:/var/lib/marzban
-      - ./marzban:/app
+      - ./marzban/logging.py:/app/logging.py
       - /var/log/marzban:/var/log/marzban
     networks:
       - internal
