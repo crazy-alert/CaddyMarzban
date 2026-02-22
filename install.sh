@@ -63,7 +63,6 @@ ufw --force enable
 # Создание директории для установки
 log "Создание директории $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/caddy/www"
 mkdir -p "$INSTALL_DIR/logs"  # Директория для симлинков
 
 # Создание директорий для логов в системе
