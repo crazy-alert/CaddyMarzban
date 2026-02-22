@@ -4,6 +4,7 @@
 REPO_URL="https://github.com/crazy-alert/CaddyMarzban.git"  # <-- ИСПОЛЬЗУЙТЕ HTTPS URL!
 INSTALL_DIR="/opt/CaddyMarzban"                         # <-- Директория для установки
 
+
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
