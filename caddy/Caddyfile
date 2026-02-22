@@ -6,10 +6,10 @@
 
 # Оптимизация TLS
     servers :443 {
-                 protocol {
-                              experimental_http3
-                          }
-     }
+                     protocol {
+                                  experimental_http3
+                              }
+                 }
 }
 
 # Замените на ваш домен
