@@ -3,6 +3,9 @@ services:
     image: gozargah/marzban:latest
     restart: unless-stopped
     env_file: .env
+    environment:
+      - UVICORN_HOST=0.0.0.0
+      - UVICORN_PORT=8000
     expose:
       - "8000"   # API панели
       - "1080"   # Shadowsocks
