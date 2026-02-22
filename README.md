@@ -28,6 +28,13 @@ docker-compose exec -w /etc/caddy caddy caddy reload
 ```bash
 docker-compose logs --tail=50
 ```
+Или:
+```bash
+docker-compose logs --tail=50 caddy
+```
+```bash
+docker-compose logs --tail=50 marzban
+```
 
 _Обновление:_
 ```bash
