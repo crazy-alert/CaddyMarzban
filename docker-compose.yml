@@ -10,6 +10,7 @@ services:
       - "2096"   # Альтернативный
       - "10000-10100"  # Диапазон для VMess/VLESS
     volumes:
+      - ./www: /www
       - /var/lib/marzban:/var/lib/marzban
       - ./marzban:/app
       - /var/log/marzban:/var/log/marzban

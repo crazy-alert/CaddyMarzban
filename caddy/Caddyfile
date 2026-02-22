@@ -4,17 +4,17 @@
     admin off
     persist_config off
 
-# Оптимизация TLS
-    servers :443 {
-                     protocol {
-                                  experimental_http3
-                              }
-                 }
+# Оптимизация TLS (закомментировано)
+# servers :443 {
+#     protocol {
+#         experimental_http3
+#     }
+# }
 }
 
-# Замените на ваш домен
+# Основной домен
 {$CADDY_DOMAIN} {
-                # Логирование (полезно для отладки)
+                # Логирование
                 log {
                     output file /var/log/caddy/access.log {
                                                           roll_size 5MB
@@ -22,42 +22,61 @@
                                                           }
     }
 
-                    # Современные заголовки безопасности
-                    header {
-                           # Защита от XSS и кликджекинга
-                           X-Content-Type-Options nosniff
-                           X-Frame-Options DENY
-                           Referrer-Policy no-referrer-when-downgrade
-                           # HSTS (включать только если уверены, что не откатитесь на HTTP)
-                           Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-                           # Удаление заголовка сервера для маскировки
-                           -Server
-                           }
+                # Статический сайт-маскировка в корне
+                root * /var/www/html
+                file_server
 
-                    # Маскировка: обычные посетители видят статический сайт
-                    root * /var/www/html
-                    file_server
+                # Современные заголовки безопасности
+                header {
+                       # Защита от XSS и кликджекинга
+                       X-Content-Type-Options nosniff
+                       X-Frame-Options DENY
+                       Referrer-Policy no-referrer-when-downgrade
+                       # HSTS
+                       Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                       # Удаление заголовка сервера для маскировки
+                       -Server
+                       }
 
-                    # Проксирование панели управления Marzban
-                    handle /dashboard/* {
-                                        reverse_proxy marzban:8000
-                                        }
+                # Панель управления Marzban
+                handle /dashboard/* {
+                                    reverse_proxy marzban:8000
+                                    }
 
-                    # Обработка входящих соединений Xray (WebSocket)
-                    handle /ws-path {
-                                    reverse_proxy marzban:10000 {
-                                                                header_up Host {host}
-                                                                header_up X-Real-IP {remote_host}
-                                                                header_up X-Forwarded-For {remote_host}
+                # Статические ассеты панели
+                handle /assets/* {
+                                 reverse_proxy marzban:8000
+                                 }
+
+                handle /statics/* {
+                                  reverse_proxy marzban:8000
+                                  }
+
+                # API
+                handle /api/* {
+                              reverse_proxy marzban:8000
+                              }
+
+                # Favicon
+                handle /favicon.ico {
+                                    reverse_proxy marzban:8000
+                                    }
+
+                # WebSocket путь для Xray
+                handle /ws-path {
+                                reverse_proxy marzban:10000 {
+                                                            header_up Host {host}
+                                                            header_up X-Real-IP {remote_host}
+                                                            header_up X-Forwarded-For {remote_host}
         }
     }
 
-                    # Обработка gRPC (если используется)
-                    handle /grpc-service/* {
-                                           reverse_proxy h2c://marzban:20000
-                                           }
+                # gRPC (если используется)
+                handle /grpc-service/* {
+                                       reverse_proxy h2c://marzban:20000
+                                       }
 
-                # Ошибка 404
+                # Обработка ошибок 404
                 handle_errors {
                               rewrite * /{err.status_code}.html
                                                           file_server
