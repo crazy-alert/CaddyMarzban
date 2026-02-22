@@ -17,7 +17,7 @@
 }
 
 # Основной домен
-{$CADDY_DOMAIN} {
+$CADDY_DOMAIN {
                 # Заглушка для корня
                 handle_path / {
                               root * /usr/share/caddy/www
