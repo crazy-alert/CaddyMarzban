@@ -12,6 +12,7 @@ services:
     volumes:
       - /var/lib/marzban:/var/lib/marzban
       - ./marzban:/app
+      - /var/log/marzban:/var/log/marzban
     networks:
       - internal
 
@@ -30,6 +31,7 @@ services:
       - ./caddy/www:/usr/share/caddy/www
       - caddy_data:/data
       - caddy_config:/config
+      - /var/log/caddy:/var/log/caddy
     networks:
       - internal
     depends_on:

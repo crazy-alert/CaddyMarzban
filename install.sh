@@ -4,7 +4,6 @@
 REPO_URL="https://github.com/crazy-alert/CaddyMarzban.git"  # <-- ИСПОЛЬЗУЙТЕ HTTPS URL!
 INSTALL_DIR="/opt/CaddyMarzban"                         # <-- Директория для установки
 
-
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -35,25 +34,7 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Функция для проверки и преобразования URL
-check_repo_url() {
-    if [[ "$REPO_URL" == git@* ]]; then
-        warn "Обнаружен SSH URL. Рекомендуется использовать HTTPS для простоты установки."
-        read -p "Хотите преобразовать в HTTPS? (y/n): " convert_url
-        if [[ $convert_url =~ ^[Yy]$ ]]; then
-            # Преобразуем git@github.com:username/repo.git -> https://github.com/username/repo.git
-            REPO_URL=$(echo "$REPO_URL" | sed 's/^git@\(.*\):\(.*\)/https:\/\/\1\/\2/')
-            log "URL преобразован в: $REPO_URL"
-        else
-            warn "Продолжаем с SSH URL. Убедитесь, что SSH ключи настроены!"
-        fi
-    fi
-}
-
 log "Начинаем установку..."
-
-# Проверка URL репозитория
-check_repo_url
 
 # Обновление пакетов
 log "Обновление списка пакетов..."
@@ -69,7 +50,8 @@ apt-get install -y \
     mc \
     nano \
     software-properties-common \
-    ufw
+    ufw \
+    logrotate  # Для ротации логов
 
 # Настройка UFW (фаервол)
 log "Настройка базового фаервола..."
@@ -77,6 +59,101 @@ ufw allow 22/tcp comment 'SSH'
 ufw allow 80/tcp comment 'HTTP'
 ufw allow 443/tcp comment 'HTTPS'
 ufw --force enable
+
+# Создание директории для установки
+log "Создание директории $INSTALL_DIR..."
+mkdir -p "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR/caddy/www"
+mkdir -p "$INSTALL_DIR/logs"  # Директория для симлинков
+
+# Создание директорий для логов в системе
+log "Создание директорий для логов..."
+mkdir -p /var/log/marzban
+mkdir -p /var/log/caddy
+
+# Настройка прав на директории логов
+chmod 755 /var/log/marzban
+chmod 755 /var/log/caddy
+
+# СОЗДАНИЕ СИМЛИНКОВ
+log "Создание симлинков для логов в $INSTALL_DIR/logs/..."
+
+# Удаляем старые симлинки если они существуют
+rm -f "$INSTALL_DIR/logs/marzban" 2>/dev/null
+rm -f "$INSTALL_DIR/logs/caddy" 2>/dev/null
+
+# Создаем новые симлинки
+ln -s /var/log/marzban "$INSTALL_DIR/logs/marzban"
+ln -s /var/log/caddy "$INSTALL_DIR/logs/caddy"
+
+# Проверка создания симлинков
+if [ -L "$INSTALL_DIR/logs/marzban" ] && [ -L "$INSTALL_DIR/logs/caddy" ]; then
+    log "Симлинки успешно созданы:"
+    log "  $INSTALL_DIR/logs/marzban -> /var/log/marzban"
+    log "  $INSTALL_DIR/logs/caddy -> /var/log/caddy"
+else
+    warn "Проблема при создании симлинков"
+fi
+
+# Создаем README в директории логов с пояснением
+cat > "$INSTALL_DIR/logs/README.md" << EOF
+# Директория логов
+
+Это симлинки на системные директории логов:
+
+- `marzban` -> `/var/log/marzban` - логи Marzban
+- `caddy` -> `/var/log/caddy` - логи Caddy
+
+Реальные логи хранятся в `/var/log/` для обеспечения:
+- Централизованного сбора логов
+- Правильной работы logrotate
+- Доступа для системных инструментов (fail2ban, auditd)
+
+Для просмотра логов используйте:
+\`\`\`bash
+# Через симлинки
+tail -f $INSTALL_DIR/logs/marzban/*.log
+tail -f $INSTALL_DIR/logs/caddy/*.log
+
+# Или напрямую
+tail -f /var/log/marzban/*.log
+tail -f /var/log/caddy/*.log
+\`\`\`
+EOF
+
+# Настройка ротации логов
+log "Настройка ротации логов..."
+cat > /etc/logrotate.d/marzban << EOF
+/var/log/marzban/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    sharedscripts
+    postrotate
+        [ -f /var/run/docker.pid ] && docker kill --signal=USR1 marzban 2>/dev/null || true
+    endscript
+}
+EOF
+
+cat > /etc/logrotate.d/caddy << EOF
+/var/log/caddy/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    sharedscripts
+    postrotate
+        [ -f /var/run/docker.pid ] && docker kill --signal=USR1 caddy 2>/dev/null || true
+    endscript
+}
+EOF
 
 # Установка Docker
 if ! command -v docker &> /dev/null; then
@@ -129,18 +206,39 @@ filter = sshd
 logpath = /var/log/auth.log
 maxretry = 3
 
-# Docker контейнеры (если есть логи)
-[docker-auth]
+# Caddy jail
+[caddy]
 enabled = true
-filter = docker-auth
-logpath = /var/lib/docker/containers/*/*-json.log
+port = http,https
+filter = caddy
+logpath = /var/log/caddy/*.log
+maxretry = 5
+
+# Marzban jail
+[marzban]
+enabled = true
+port = 8000
+filter = marzban
+logpath = /var/log/marzban/*.log
+maxretry = 5
 EOF
 
-    # Создание фильтра для Docker
-    cat > /etc/fail2ban/filter.d/docker-auth.conf << EOF
+    # Создание фильтра для Caddy
+    cat > /etc/fail2ban/filter.d/caddy.conf << EOF
 [Definition]
-failregex = ^.*Failed password for .* from <HOST> port .* ssh2$
-            ^.*Invalid user .* from <HOST> port .*$
+failregex = ^<HOST> .* 400 .*$
+            ^<HOST> .* 403 .*$
+            ^<HOST> .* 404 .*$
+            ^<HOST> .* 500 .*$
+ignoreregex =
+EOF
+
+    # Создание фильтра для Marzban
+    cat > /etc/fail2ban/filter.d/marzban.conf << EOF
+[Definition]
+failregex = .*Failed login attempt from <HOST>.*
+            .*Invalid token from <HOST>.*
+            .*Too many requests from <HOST>.*
 ignoreregex =
 EOF
 
@@ -153,10 +251,6 @@ else
     log "Пропускаем установку fail2ban"
 fi
 
-# Создание директории для установки
-log "Создание директории $INSTALL_DIR..."
-mkdir -p "$INSTALL_DIR"
-
 # Клонирование или обновление репозитория
 if [ -d "$INSTALL_DIR/.git" ]; then
     log "Репозиторий уже существует, обновляем..."
@@ -164,27 +258,59 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     git pull
 else
     log "Клонирование репозитория..."
-
-    # Пробуем клонировать с обработкой ошибок
     if git clone "$REPO_URL" "$INSTALL_DIR"; then
         log "Репозиторий успешно склонирован"
         cd "$INSTALL_DIR"
     else
         error "Не удалось клонировать репозиторий."
         error "Проверьте URL: $REPO_URL"
-        error ""
-        error "Возможные решения:"
-        error "1. Используйте HTTPS URL (https://github.com/username/repo.git)"
-        error "2. Если используете SSH, настройте ключи: ssh-keygen -t ed25519 -C \"your_email@example.com\""
-        error "3. Для публичных репозиториев можно использовать: git clone https://github.com/username/repo.git"
         exit 1
     fi
+fi
+
+# Создание базового Caddyfile если его нет
+if [ ! -f "caddy/Caddyfile" ]; then
+    log "Создание базового Caddyfile..."
+    mkdir -p caddy
+    cat > caddy/Caddyfile << EOF
+# Глобальные настройки
+{
+    email {$CADDY_EMAIL}
+    log {
+        output file /var/log/caddy/access.log
+        level INFO
+    }
+}
+
+{$CADDY_DOMAIN} {
+    # Reverse proxy к Marzban API
+    handle /api/* {
+        reverse_proxy marzban:8000
+    }
+
+    # Reverse proxy для прокси протоколов
+    handle /vmess/* {
+        reverse_proxy marzban:10000-10100
+    }
+
+    # Статические файлы
+    handle {
+        root * /usr/share/caddy/www
+        file_server
+    }
+
+    # Логи
+    log {
+        output file /var/log/caddy/error.log
+        level ERROR
+    }
+}
+EOF
 fi
 
 # Проверяем наличие .env.example
 if [ ! -f ".env.example" ]; then
     error "Файл .env.example не найден в репозитории!"
-    ls -la
     exit 1
 fi
 
@@ -204,10 +330,8 @@ update_env_var() {
     local var_comment="$3"
 
     if grep -q "^#\?$var_name=" ".env"; then
-        # Переменная существует (закомментирована или нет)
         sed -i "s|^#\?$var_name=.*|$var_name=$var_value|" ".env"
     else
-        # Переменная не существует, добавляем
         if [ -n "$var_comment" ]; then
             echo -e "\n#$var_comment\n$var_name=$var_value" >> ".env"
         else
@@ -233,37 +357,18 @@ if [[ $setup_telegram =~ ^[Yy]$ ]]; then
     read -p "Введите Telegram Bot Token (получить у @BotFather): " TELEGRAM_TOKEN
     read -p "Введите ваш Telegram ID (узнать у @userinfobot): " TELEGRAM_ID
 
-    update_env_var "TELEGRAM_API_TOKEN" "$TELEGRAM_TOKEN" "Telegram bot token (get from @BotFather)"
-    update_env_var "TELEGRAM_ADMIN_ID" "$TELEGRAM_ID" "Telegram admin ID (get from @userinfobot)"
+    update_env_var "TELEGRAM_API_TOKEN" "$TELEGRAM_TOKEN" "Telegram bot token"
+    update_env_var "TELEGRAM_ADMIN_ID" "$TELEGRAM_ID" "Telegram admin ID"
 
     log "Telegram бот настроен"
-else
-    log "Telegram бот не будет настроен"
-fi
-
-# Проверка наличия docker-compose.yml
-if [ ! -f "docker-compose.yml" ]; then
-    error "Файл docker-compose.yml не найден в репозитории!"
-    ls -la
-    exit 1
 fi
 
 # Запуск docker-compose
 log "Запуск docker-compose..."
 docker-compose up -d
 
-# Проверка успешности запуска
-if [ $? -eq 0 ]; then
-    log "Docker Compose успешно запущен"
-else
-    error "Ошибка при запуске Docker Compose"
-    exit 1
-fi
-
-# Добавление в автозапуск
-log "Настройка автозапуска..."
-
 # Создание systemd сервиса для автозапуска
+log "Настройка автозапуска..."
 cat > /etc/systemd/system/caddy-marzban.service << EOF
 [Unit]
 Description=Caddy Marzban Docker Compose
@@ -297,20 +402,26 @@ info "=== ИНФОРМАЦИЯ О СИСТЕМЕ ==="
 info "Директория установки: $INSTALL_DIR"
 info "Домен: $CADDY_DOMAIN"
 info "Email: $CADDY_EMAIL"
-
-echo ""
-info "=== УПРАВЛЕНИЕ ПРИЛОЖЕНИЕМ ==="
-info "Просмотр логов: cd $INSTALL_DIR && docker-compose logs -f"
+info ""
+info "=== ЛОГИ (СИМЛИНКИ) ==="
+info "Логи доступны по симлинкам:"
+info "  $INSTALL_DIR/logs/marzban/ -> /var/log/marzban/"
+info "  $INSTALL_DIR/logs/caddy/ -> /var/log/caddy/"
+info ""
+info "Просмотр логов через симлинки:"
+info "  tail -f $INSTALL_DIR/logs/marzban/*.log"
+info "  tail -f $INSTALL_DIR/logs/caddy/*.log"
+info ""
+info "Просмотр логов Docker:"
+info "  cd $INSTALL_DIR && docker-compose logs -f"
+info ""
+info "=== УПРАВЛЕНИЕ ==="
 info "Остановка: cd $INSTALL_DIR && docker-compose down"
 info "Запуск: cd $INSTALL_DIR && docker-compose up -d"
 info "Перезапуск: cd $INSTALL_DIR && docker-compose restart"
 
-echo ""
-info "=== ССЫЛКИ ==="
-info "Сайт: https://$CADDY_DOMAIN"
-
 # Самоуничтожение скрипта
 log "Удаляем скрипт установки..."
-rm -- "$0"
+rm -- "install.sh"
 
 log "Готово!"
