@@ -12,7 +12,7 @@ services:
     volumes:
       - ./www:/www
       - /var/lib/marzban:/var/lib/marzban
-      - ./marzban/code/:/code
+      - ./marzban:/app
       - /var/log/marzban:/var/log/marzban
     networks:
       - internal
