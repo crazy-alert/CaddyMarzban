@@ -16,11 +16,6 @@ services:
     #      - ./marzban/code/xray_config.json:/code/xray_config.json  # <-- Сохраняем конфиг
     networks:
       - internal
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:8000/dashboard"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   caddy:
     image: caddy:latest
