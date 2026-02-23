@@ -211,6 +211,16 @@ fi
 # Создание структуры для данных
 log "Создание структуры директорий..."
 mkdir -p /var/lib/marzban/mysql
+# Устанавливаем правильного владельца для MySQL (пользователь 999 - mysql в контейнере)
+chown -R 999:999 /var/lib/marzban/mysql
+# Устанавливаем правильные права
+chmod -R 755 /var/lib/marzban/mysql
+# Также проверяем родительскую директорию
+chown 999:999 /var/lib/marzban 2>/dev/null || chmod 777 /var/lib/marzban
+chmod 755 /var/lib/marzban
+
+log "Права на директорию MySQL настроены:"
+ls -la /var/lib/marzban | grep mysql
 mkdir -p /var/log/marzban
 mkdir -p /var/log/caddy
 mkdir -p marzban/code
@@ -327,6 +337,6 @@ info "  Перезапуск: cd $INSTALL_DIR && docker-compose restart"
 
 # Самоуничтожение
 log "Удаляем скрипт установки..."
-rm -- "$0"
+rm -- "install.sh"
 
 log "Готово!"
