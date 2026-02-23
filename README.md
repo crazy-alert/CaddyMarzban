@@ -22,7 +22,9 @@ _сам reload:_
 ```bash
 docker-compose exec -w /etc/caddy caddy caddy reload
 ```
-
+```bash
+docker-compose restart caddy
+````
 
 Глянуть логи: 
 ```bash
