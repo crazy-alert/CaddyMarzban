@@ -11,7 +11,7 @@ services:
       - "10000-10100"
     volumes:
       - ./marzban/code/:/code/
-      - ./marzban/main.py.patched:/code/main.py            # Патч main.py
+      - ./marzban/main.patched.py:/code/main.py            # Патч main.py
     networks:
       - internal
 
