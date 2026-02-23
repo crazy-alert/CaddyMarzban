@@ -138,8 +138,13 @@ fi
 
 # Создание .env файла
 if [ ! -f ".env" ]; then
-    log "Создание .env файла..."
-    cp .env.example .env
+    if [ -f ".env.example" ]; then
+        log "Создание .env файла из примера..."
+        cp .env.example .env
+    else
+        log "Создание нового .env файла..."
+        touch .env
+    fi
 fi
 
 # Функция обновления переменных в .env
@@ -190,12 +195,6 @@ if ! grep -q "^MYSQL_PASSWORD=" ".env"; then
 else
     log "Используем существующий пароль MySQL"
 fi
-
-
-
-
-
-
 
 # Telegram бот
 read -p "Настроить Telegram бота для управления? (y/n): " setup_telegram
@@ -258,6 +257,14 @@ EOF
 log "Запуск контейнеров..."
 docker-compose up -d
 
+# Ожидание готовности MySQL
+log "Ожидание готовности MySQL..."
+sleep 10
+until docker exec marzban-mysql mysqladmin ping -h localhost --silent; do
+    echo "Ожидание MySQL..."
+    sleep 2
+done
+
 # Создание systemd сервиса
 log "Настройка автозапуска..."
 cat > /etc/systemd/system/caddy-marzban.service << EOF
@@ -282,6 +289,18 @@ EOF
 
 systemctl daemon-reload
 systemctl enable caddy-marzban.service
+
+
+# Проверка запущенных контейнеров
+log "Проверка статуса контейнеров..."
+sleep 5
+if [ $(docker-compose ps -q | wc -l) -eq 3 ]; then
+    log "Все контейнеры успешно запущены"
+else
+    warn "Не все контейнеры запущены. Проверьте логи: docker-compose logs"
+fi
+
+
 
 # Финальная информация
 log "Установка завершена!"

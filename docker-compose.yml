@@ -1,72 +1,11 @@
 services:
-  marzban:
-    image: gozargah/marzban:latest
-    restart: unless-stopped
-    env_file: .env
-    expose:
-      - "8000"
-      - "1080"
-      - "8443"
-      - "2096"
-      - "10000-10100"
-    volumes:
-      - marzban_code:/code/
-      - /var/lib/marzban:/var/lib/marzban
-      - ./marzban/main.patched.py:/code/main.py
-      - /var/lib/marzban/logs:/var/lib/marzban-node
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - internal
-
-  mysql:
-    image: mysql:lts
-    env_file: .env
-    network_mode: host
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_ROOT_HOST: '%'
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    command:
-      - "--mysqlx=OFF"
-      - "--bind-address=127.0.0.1"
-      - "--character_set_server=utf8mb4"
-      - "--collation_server=utf8mb4_unicode_ci"
-      - "--log-bin=mysql-bin"
-      - "--binlog_expire_logs_seconds=1209600"
-      - "--host-cache-size=0"
-      - "--innodb-open-files=1024"
-      - "--innodb-buffer-pool-size=256M"
-      - "--innodb-log-file-size=64M"
-      - "--innodb-log-files-in-group=2"
-      - "--general_log=0"
-      - "--slow_query_log=1"
-      - "--slow_query_log_file=/var/lib/mysql/slow.log"
-      - "--long_query_time=2"
-    volumes:
-      - /var/lib/marzban/mysql:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "marzban", "--password=${MYSQL_PASSWORD}"]
-      start_period: 5s
-      interval: 5s
-      timeout: 5s
-      retries: 55
-
   caddy:
     image: caddy:latest
     restart: unless-stopped
     env_file: .env
-    ports:
+    ports: # Добавить публикацию портов
       - "80:80"
       - "443:443"
-      - "1080:1080"
-      - "8443:8443"
-      - "2096:2096"
-      - "10000-10100:10000-10100"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - ./www:/var/www/html
@@ -74,10 +13,53 @@ services:
       - caddy_config:/config
       - /var/log/caddy:/var/log/caddy
     networks:
-      - internal
+      - marzban-network
     depends_on:
       marzban:
         condition: service_started
+
+  marzban:
+    image: gozargah/marzban:latest
+    container_name: marzban
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SQLALCHEMY_DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql/${MYSQL_DATABASE}
+    volumes:
+      - /var/lib/marzban:/var/lib/marzban
+      - /var/lib/marzban/certs:/var/lib/marzban/certs
+      - /var/lib/marzban/logs:/var/lib/marzban/logs
+      - ./marzban/main.patched.py:/code/main.py # тут костыль, по умолчанию dashboard слушает только 127.0.0.1, но у нас всё за Caddy...
+    expose: # Оставить expose для внутренней сети
+      - "8000"
+      - "1080"
+      - "8443"
+      - "2096"
+      - "10000-10100"
+    networks:
+      - marzban-network
+
+  mysql:
+    image: mysql:8.0
+    container_name: marzban-mysql
+    restart: always
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - /var/lib/marzban/mysql:/var/lib/mysql
+    networks:
+      - marzban-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      timeout: 20s
+      retries: 10
 
 volumes:
   marzban_code:
@@ -85,5 +67,5 @@ volumes:
   caddy_config:
 
 networks:
-  internal:
+  marzban-network:
     driver: bridge
