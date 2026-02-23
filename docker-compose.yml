@@ -9,12 +9,12 @@ services:
       - "8443"
       - "2096"
       - "10000-10100"
-    healthcheck:
-      test: [ "CMD", "wget", "--spider", "http://localhost:8000/dashboard" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+#    healthcheck:
+#      test: [ "CMD", "wget", "--spider", "http://localhost:8000/dashboard" ]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 20s
     volumes:
 #      - ./marzban/code/:/code/
       - ./marzban/code/main.py.patched:/code/main.py            # Патч main.py
