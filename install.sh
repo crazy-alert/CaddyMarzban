@@ -1,17 +1,32 @@
 #!/bin/bash
 
 # Конфигурация
-REPO_URL="https://github.com/crazy-alert/CaddyMarzban.git"  # <-- ИСПОЛЬЗУЙТЕ HTTPS URL!
-INSTALL_DIR="/opt/CaddyMarzban"                         # <-- Директория для установки
+REPO_URL="https://github.com/crazy-alert/CaddyMarzban.git"
+INSTALL_DIR="/opt/CaddyMarzban"
 
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Функция для вывода сообщений
+# Функция для цветного вывода
+colorized_echo() {
+    local color=$1
+    local text=$2
+
+    case $color in
+        "red")     echo -e "\e[91m${text}\e[0m" ;;
+        "green")   echo -e "\e[92m${text}\e[0m" ;;
+        "yellow")  echo -e "\e[93m${text}\e[0m" ;;
+        "blue")    echo -e "\e[94m${text}\e[0m" ;;
+        "magenta") echo -e "\e[95m${text}\e[0m" ;;
+        "cyan")    echo -e "\e[96m${text}\e[0m" ;;
+        *)         echo "${text}" ;;
+    esac
+}
+
 log() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -28,6 +43,7 @@ info() {
     echo -e "${BLUE}[NOTE]${NC} $1"
 }
 
+
 # Проверка прав root
 if [[ $EUID -ne 0 ]]; then
    error "Этот скрипт должен запускаться с правами root (используйте sudo)"
@@ -39,10 +55,9 @@ log "Начинаем установку..."
 # Обновление пакетов
 log "Обновление списка пакетов..."
 apt-get update
-apt-get install -y нужные_пакеты
 
 # Установка необходимых пакетов
-log "Установка docker, git, curl, mc, nano..."
+log "Установка необходимых пакетов..."
 apt-get install -y \
     apt-transport-https \
     ca-certificates \
@@ -52,29 +67,7 @@ apt-get install -y \
     nano \
     software-properties-common \
     ufw \
-    logrotate  # Для ротации логов
-
-# Настройка UFW (фаервол)
-log "Настройка базового фаервола..."
-ufw allow 22/tcp comment 'SSH'
-ufw allow 80/tcp comment 'HTTP'
-ufw allow 443/tcp comment 'HTTPS'
-ufw --force enable
-# Открываем порты для прокси
-ufw allow 1080/tcp comment 'Shadowsocks'
-ufw allow 1080/udp comment 'Shadowsocks UDP'
-ufw allow 8443/tcp comment 'Trojan/Shadowsocks+TLS'
-ufw allow 2096/tcp comment 'Alternative'
-ufw allow 10000:10100/tcp comment 'VMess/VLESS range'
-ufw allow 10000:10100/udp comment 'VMess/VLESS range UDP'
-
-# Перезагружаем UFW
-ufw reload
-ufw --force enable
-
-# Создание директории для установки
-log "Создание директории $INSTALL_DIR..."
-mkdir -p "$INSTALL_DIR"
+    logrotate
 
 # Установка Docker
 if ! command -v docker &> /dev/null; then
@@ -95,152 +88,61 @@ else
     log "Docker Compose уже установлен"
 fi
 
-# Настройка fail2ban
-read -p "А не установить ли fail2ban для защиты от брутфорса? (y/n): " setup_fail2ban
-if [[ $setup_fail2ban =~ ^[Yy]$ ]]; then
-    log "Установка и настройка fail2ban..."
+# Настройка UFW
+log "Настройка фаервола..."
+# Изменяем политику форвардинга для Docker
+sed -i 's/DEFAULT_FORWARD_POLICY="DROP"/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
 
-    # Установка fail2ban
-    apt-get install -y fail2ban
+# Открываем порты
+ufw allow 22/tcp comment 'SSH'
+ufw allow 80/tcp comment 'HTTP'
+ufw allow 443/tcp comment 'HTTPS'
+ufw allow 1080/tcp comment 'Shadowsocks'
+ufw allow 1080/udp comment 'Shadowsocks UDP'
+ufw allow 8443/tcp comment 'Trojan'
+ufw allow 2096/tcp comment 'Alternative'
+ufw allow 10000:10100/tcp comment 'VMess/VLESS range'
+ufw allow 10000:10100/udp comment 'VMess/VLESS range UDP'
 
-    # Создание локальной конфигурации
-    cat > /etc/fail2ban/jail.local << EOF
-[DEFAULT]
-# Блокировка на 1 час
-bantime = 3600
-# Время окна проверки (10 минут)
-findtime = 600
-# Количество попыток (3 неудачных попытки за 10 минут)
-maxretry = 3
+# Включаем UFW
+ufw --force enable
 
-# Игнорировать локальные сети
-ignoreip = 127.0.0.1/8 ::1 192.168.0.0/16 172.16.0.0/12 10.0.0.0/8
+# Создание директории установки
+log "Создание директории $INSTALL_DIR..."
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
 
-# Действие по умолчанию - блокировка по iptables
-banaction = iptables-multiport
-
-# SSHD jail
-[sshd]
-enabled = true
-port = ssh
-filter = sshd
-logpath = /var/log/auth.log
-maxretry = 3
-
-# Caddy jail
-[caddy]
-enabled = true
-port = http,https
-filter = caddy
-logpath = /var/log/caddy/*.log
-maxretry = 5
-
-# Marzban jail
-[marzban]
-enabled = true
-port = 8000
-filter = marzban
-logpath = /var/log/marzban/*.log
-maxretry = 5
-EOF
-
-    # Создание фильтра для Caddy
-    cat > /etc/fail2ban/filter.d/caddy.conf << EOF
-[Definition]
-failregex = ^<HOST> .* 400 .*$
-            ^<HOST> .* 403 .*$
-            ^<HOST> .* 404 .*$
-            ^<HOST> .* 500 .*$
-ignoreregex =
-EOF
-
-    # Создание фильтра для Marzban
-    cat > /etc/fail2ban/filter.d/marzban.conf << EOF
-[Definition]
-failregex = .*Failed login attempt from <HOST>.*
-            .*Invalid token from <HOST>.*
-            .*Too many requests from <HOST>.*
-ignoreregex =
-EOF
-
-    # Включение и запуск fail2ban
-    systemctl enable fail2ban
-    systemctl restart fail2ban
-
-    log "Fail2ban успешно установлен и настроен"
-else
-    log "Пропускаем установку fail2ban"
-fi
-
-# Клонирование или обновление репозитория
+# Клонирование репозитория
 if [ -d "$INSTALL_DIR/.git" ]; then
     log "Репозиторий уже существует, обновляем..."
-    cd "$INSTALL_DIR"
-
-    # Проверяем, есть ли локальные изменения
     if ! git diff --quiet; then
         warn "Обнаружены локальные изменения. Они будут сохранены."
         git stash push -m "auto-stash before update" > /dev/null
     fi
 
-    # Пытаемся обновиться
     if git pull; then
         log "Репозиторий успешно обновлён"
     else
         error "Ошибка при обновлении репозитория"
-        error "Возможные причины:"
-        error "  • Конфликты с локальными изменениями"
-        error "  • Проблемы с сетью"
-        error "  • Недостаточно прав"
-        error ""
-        error "Попробуйте выполнить вручную:"
-        error "  cd $INSTALL_DIR"
-        error "  git status  # проверить состояние"
-        error "  git pull    # обновиться вручную"
         exit 1
     fi
 else
     log "Клонирование репозитория..."
-    log "  URL: $REPO_URL"
-    log "  Директория: $INSTALL_DIR"
-
-    # Пытаемся клонировать
     if git clone "$REPO_URL" "$INSTALL_DIR"; then
         log "Репозиторий успешно склонирован"
-        cd "$INSTALL_DIR"
     else
         error "Не удалось клонировать репозиторий"
-        error ""
-        error "Возможные причины:"
-        error "  • Неверный URL: $REPO_URL"
-        error "  • Репозиторий не существует или приватный"
-        error "  • Нет подключения к GitHub"
-        error "  • Нет прав на запись в $INSTALL_DIR"
-        error ""
-        error "Проверьте:"
-        error "  • Правильность URL (должен быть https://...)"
-        error "  • Сетевое соединение: ping github.com"
-        error "  • Права на директорию: ls -la $(dirname $INSTALL_DIR)"
         exit 1
     fi
 fi
 
-# Проверяем наличие .env.example
-if [ ! -f ".env.example" ]; then
-    error "Файл .env.example не найден в репозитории!"
-    exit 1
-fi
-
-# Копирование .env.example в .env если .env не существует
+# Создание .env файла
 if [ ! -f ".env" ]; then
-    log "Копирование .env.example в .env..."
+    log "Создание .env файла..."
     cp .env.example .env
-    log "Файл .env создан"
-else
-    log "Файл .env уже существует"
 fi
 
-# Функция для обновления переменной в .env
+# Функция обновления переменных в .env
 update_env_var() {
     local var_name="$1"
     local var_value="$2"
@@ -263,11 +165,37 @@ log "Настройка конфигурации..."
 # CADDY_DOMAIN
 read -p "Введите домен для Caddy (например, example.com): " CADDY_DOMAIN
 update_env_var "CADDY_DOMAIN" "$CADDY_DOMAIN" "Caddy domain"
-update_env_var "XRAY_SUBSCRIPTION_URL_PREFIX" "$CADDY_DOMAIN" "Префикс адреса подписки"
+update_env_var "XRAY_SUBSCRIPTION_URL_PREFIX" "https://$CADDY_DOMAIN" "Префикс адреса подписки"
 
 # CADDY_EMAIL
 read -p "Введите email для Caddy (для SSL сертификатов): " CADDY_EMAIL
 update_env_var "CADDY_EMAIL" "$CADDY_EMAIL" "Caddy email"
+
+
+
+if ! grep -q "^MYSQL_PASSWORD=" ".env"; then
+    # Генерация паролей и запись в .env
+
+    MYSQL_ROOT_PASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)
+    MYSQL_PASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)
+
+    update_env_var "MYSQL_ROOT_PASSWORD" "$MYSQL_ROOT_PASSWORD" "MySQL root password"
+    update_env_var "MYSQL_DATABASE" "marzban" "MySQL database name"
+    update_env_var "MYSQL_USER" "marzban" "MySQL username"
+    update_env_var "MYSQL_PASSWORD" "$MYSQL_PASSWORD" "MySQL user password"
+    # Формируем строку подключения
+    SQLALCHEMY_URL="mysql+pymysql://marzban:${MYSQL_PASSWORD}@127.0.0.1:3306/marzban"
+    update_env_var "SQLALCHEMY_DATABASE_URL" "$SQLALCHEMY_URL" "SQLAlchemy Database URL"
+    log "Сгенерирован новый пароль MySQL"
+else
+    log "Используем существующий пароль MySQL"
+fi
+
+
+
+
+
+
 
 # Telegram бот
 read -p "Настроить Telegram бота для управления? (y/n): " setup_telegram
@@ -281,17 +209,18 @@ if [[ $setup_telegram =~ ^[Yy]$ ]]; then
     log "Telegram бот настроен"
 fi
 
-
-# Создание директорий для логов в системе
-log "Создание директорий для логов..."
+# Создание структуры для данных
+log "Создание структуры директорий..."
+mkdir -p /var/lib/marzban/mysql
 mkdir -p /var/log/marzban
 mkdir -p /var/log/caddy
+mkdir -p marzban/code
 
-# Настройка прав на директории логов
-chmod 755 /var/log/marzban
-chmod 755 /var/log/caddy
+# Права на директории
+chmod 755 /var/log/marzban /var/log/caddy
+chown -R 1000:1000 /var/lib/marzban 2>/dev/null || chmod 777 /var/lib/marzban
 
-# Настройка ротации логов
+# Настройка logrotate
 log "Настройка ротации логов..."
 cat > /etc/logrotate.d/marzban << EOF
 /var/log/marzban/*.log {
@@ -325,21 +254,17 @@ cat > /etc/logrotate.d/caddy << EOF
 }
 EOF
 
-
-
 # Запуск docker-compose
-log "Запуск docker-compose..."
+log "Запуск контейнеров..."
 docker-compose up -d
 
-# Создание systemd сервиса для автозапуска
+# Создание systemd сервиса
 log "Настройка автозапуска..."
 cat > /etc/systemd/system/caddy-marzban.service << EOF
 [Unit]
 Description=Caddy Marzban Docker Compose
 Requires=docker.service
 After=docker.service network-online.target
-Wants=network-online.target
-Before=fail2ban.service
 
 [Service]
 Type=oneshot
@@ -367,16 +292,21 @@ info "Директория установки: $INSTALL_DIR"
 info "Домен: $CADDY_DOMAIN"
 info "Email: $CADDY_EMAIL"
 info ""
-info "Просмотр логов Docker:"
+info "MySQL настроен с:"
+info "  Пользователь: marzban"
+info "  База данных: marzban"
+info "  Пароль: $MYSQL_PASSWORD"
+info ""
+info "Просмотр логов:"
 info "  cd $INSTALL_DIR && docker-compose logs -f"
 info ""
-info "=== УПРАВЛЕНИЕ ==="
-info "Остановка: cd $INSTALL_DIR && docker-compose down"
-info "Запуск: cd $INSTALL_DIR && docker-compose up -d"
-info "Перезапуск: cd $INSTALL_DIR && docker-compose restart"
+info "Управление:"
+info "  Остановка: cd $INSTALL_DIR && docker-compose down"
+info "  Запуск: cd $INSTALL_DIR && docker-compose up -d"
+info "  Перезапуск: cd $INSTALL_DIR && docker-compose restart"
 
-# Самоуничтожение скрипта
+# Самоуничтожение
 log "Удаляем скрипт установки..."
-rm -- "install.sh"
+rm -- "$0"
 
 log "Готово!"
