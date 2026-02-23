@@ -260,7 +260,7 @@ docker-compose up -d
 # Ожидание готовности MySQL
 log "Ожидание готовности MySQL..."
 sleep 10
-until docker exec marzban-mysql mysqladmin ping -h localhost --silent; do
+until docker exec mysql mysqladmin ping -h localhost --silent; do
     echo "Ожидание MySQL..."
     sleep 2
 done
