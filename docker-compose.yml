@@ -10,7 +10,7 @@ services:
       - "2096"
       - "10000-10100"
     volumes:
-      - ./marzban/code/:/code/
+      - marzban_code:/code/
       - ./marzban/main.patched.py:/code/main.py            # Патч main.py
     networks:
       - internal
@@ -39,6 +39,7 @@ services:
         condition: service_started  # Ждём только запуска
 
 volumes:
+  marzban_code:
   caddy_data:
   caddy_config:
 
