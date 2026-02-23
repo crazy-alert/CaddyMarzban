@@ -1,10 +1,16 @@
 # Marzban + Caddy
-
+Основано на https://github.com/Gozargah/Marzban и https://github.com/caddyserver/caddy
 ## Установка
 
 ```bash
 sudo bash -c "$(curl -sL https://raw.githubusercontent.com/crazy-alert/CaddyMarzban/refs/heads/main/install.sh)"
 ```
+
+Для добавления адммина войдите в контейнер:
+```docker exec -it XXXXX sh```
+Вбейте команду:
+```marzban-cli admin create```
+И следуйте указаниям
 
 ## Marzban и Xray-core обновляются довольно часто. Для обновления всей связки в Docker достаточно выполнить:
 ```bash
