@@ -41,9 +41,9 @@ docker-compose logs --tail=50 marzban
 
 _Обновление:_
 ```bash
+docker-compose down
 git stash
 git pull
-docker-compose down
 docker-compose up -d
 
 ```
