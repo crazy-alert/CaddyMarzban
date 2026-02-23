@@ -10,12 +10,9 @@ services:
       - "2096"
       - "10000-10100"
     volumes:
-      - ./marzban/main.py.patched:/code/main.py          # Патч main.py
-      - ./marzban/data/db.sqlite3:/code/db.sqlite3  # <-- Сохраняем БД
-      - ./marzban/data/xray_config.json:/code/xray_config.json  # <-- Сохраняем конфиг
-      # Убрал сомнительные монтирования:
-      # - ./www:/www
-      # - ./marzban/logging.py:/app/logging.py
+      - ./marzban/code/main.py.patched:/code/main.py            # Патч main.py
+      - ./marzban/code/db.sqlite3:/code/db.sqlite3              # <-- Сохраняем БД
+      - ./marzban/code/xray_config.json:/code/xray_config.json  # <-- Сохраняем конфиг
     networks:
       - internal
     healthcheck:
