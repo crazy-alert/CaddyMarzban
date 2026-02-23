@@ -14,17 +14,17 @@
 
 # Основной домен
 {$CADDY_DOMAIN} {
+                # Статический сайт-маскировка в корне
+                root * /var/www/html
+                file_server
+
                 # Логирование
                 log {
                     output file /var/log/caddy/access.log {
                                                           roll_size 5MB
                                                           roll_keep 2
                                                           }
-    }
-
-                # Статический сайт-маскировка в корне
-                root * /var/www/html
-                file_server
+                    }
 
                 # Современные заголовки безопасности
                 header {
@@ -37,6 +37,10 @@
                        # Удаление заголовка сервера для маскировки
                        -Server
                        }
+                 # Страница подписок Marzban
+                 handle /sub/* {
+                                reverse_proxy marzban:8000
+                                }
 
                 # Панель управления Marzban
                 handle /dashboard/* {
