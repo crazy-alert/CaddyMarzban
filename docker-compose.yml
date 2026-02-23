@@ -1,6 +1,7 @@
 services:
   caddy:
     image: caddy:latest
+    container_name: caddy
     restart: unless-stopped
     env_file: .env
     ports: # Добавить публикацию портов
@@ -44,7 +45,7 @@ services:
 
   mysql:
     image: mysql:8.4.0
-    container_name: marzban-mysql
+    container_name: mysql
     restart: always
     env_file: .env
     environment:
