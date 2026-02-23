@@ -39,6 +39,7 @@ log "Начинаем установку..."
 # Обновление пакетов
 log "Обновление списка пакетов..."
 apt-get update
+apt-get install -y нужные_пакеты
 
 # Установка необходимых пакетов
 log "Установка docker, git, curl, mc, nano..."
@@ -59,100 +60,21 @@ ufw allow 22/tcp comment 'SSH'
 ufw allow 80/tcp comment 'HTTP'
 ufw allow 443/tcp comment 'HTTPS'
 ufw --force enable
+# Открываем порты для прокси
+ufw allow 1080/tcp comment 'Shadowsocks'
+ufw allow 1080/udp comment 'Shadowsocks UDP'
+ufw allow 8443/tcp comment 'Trojan/Shadowsocks+TLS'
+ufw allow 2096/tcp comment 'Alternative'
+ufw allow 10000:10100/tcp comment 'VMess/VLESS range'
+ufw allow 10000:10100/udp comment 'VMess/VLESS range UDP'
+
+# Перезагружаем UFW
+ufw reload
+ufw --force enable
 
 # Создание директории для установки
 log "Создание директории $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/logs"  # Директория для симлинков
-
-# Создание директорий для логов в системе
-log "Создание директорий для логов..."
-mkdir -p /var/log/marzban
-mkdir -p /var/log/caddy
-
-# Настройка прав на директории логов
-chmod 755 /var/log/marzban
-chmod 755 /var/log/caddy
-
-# СОЗДАНИЕ СИМЛИНКОВ
-log "Создание симлинков для логов в $INSTALL_DIR/logs/..."
-
-# Удаляем старые симлинки если они существуют
-rm -f "$INSTALL_DIR/logs/marzban" 2>/dev/null
-rm -f "$INSTALL_DIR/logs/caddy" 2>/dev/null
-
-# Создаем новые симлинки
-ln -s /var/log/marzban "$INSTALL_DIR/logs/marzban"
-ln -s /var/log/caddy "$INSTALL_DIR/logs/caddy"
-
-# Проверка создания симлинков
-if [ -L "$INSTALL_DIR/logs/marzban" ] && [ -L "$INSTALL_DIR/logs/caddy" ]; then
-    log "Симлинки успешно созданы:"
-    log "  $INSTALL_DIR/logs/marzban -> /var/log/marzban"
-    log "  $INSTALL_DIR/logs/caddy -> /var/log/caddy"
-else
-    warn "Проблема при создании симлинков"
-fi
-
-# Создаем README в директории логов с пояснением
-cat > "$INSTALL_DIR/logs/README.md" << EOF
-# Директория логов
-
-Это симлинки на системные директории логов:
-
-- `marzban` -> `/var/log/marzban` - логи Marzban
-- `caddy` -> `/var/log/caddy` - логи Caddy
-
-Реальные логи хранятся в `/var/log/` для обеспечения:
-- Централизованного сбора логов
-- Правильной работы logrotate
-- Доступа для системных инструментов (fail2ban, auditd)
-
-Для просмотра логов используйте:
-\`\`\`bash
-# Через симлинки
-tail -f $INSTALL_DIR/logs/marzban/*.log
-tail -f $INSTALL_DIR/logs/caddy/*.log
-
-# Или напрямую
-tail -f /var/log/marzban/*.log
-tail -f /var/log/caddy/*.log
-\`\`\`
-EOF
-
-# Настройка ротации логов
-log "Настройка ротации логов..."
-cat > /etc/logrotate.d/marzban << EOF
-/var/log/marzban/*.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 644 root root
-    sharedscripts
-    postrotate
-        [ -f /var/run/docker.pid ] && docker kill --signal=USR1 marzban 2>/dev/null || true
-    endscript
-}
-EOF
-
-cat > /etc/logrotate.d/caddy << EOF
-/var/log/caddy/*.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 644 root root
-    sharedscripts
-    postrotate
-        [ -f /var/run/docker.pid ] && docker kill --signal=USR1 caddy 2>/dev/null || true
-    endscript
-}
-EOF
 
 # Установка Docker
 if ! command -v docker &> /dev/null; then
@@ -254,57 +176,53 @@ fi
 if [ -d "$INSTALL_DIR/.git" ]; then
     log "Репозиторий уже существует, обновляем..."
     cd "$INSTALL_DIR"
-    git pull
+
+    # Проверяем, есть ли локальные изменения
+    if ! git diff --quiet; then
+        warn "Обнаружены локальные изменения. Они будут сохранены."
+        git stash push -m "auto-stash before update" > /dev/null
+    fi
+
+    # Пытаемся обновиться
+    if git pull; then
+        log "Репозиторий успешно обновлён"
+    else
+        error "Ошибка при обновлении репозитория"
+        error "Возможные причины:"
+        error "  • Конфликты с локальными изменениями"
+        error "  • Проблемы с сетью"
+        error "  • Недостаточно прав"
+        error ""
+        error "Попробуйте выполнить вручную:"
+        error "  cd $INSTALL_DIR"
+        error "  git status  # проверить состояние"
+        error "  git pull    # обновиться вручную"
+        exit 1
+    fi
 else
     log "Клонирование репозитория..."
+    log "  URL: $REPO_URL"
+    log "  Директория: $INSTALL_DIR"
+
+    # Пытаемся клонировать
     if git clone "$REPO_URL" "$INSTALL_DIR"; then
         log "Репозиторий успешно склонирован"
         cd "$INSTALL_DIR"
     else
-        error "Не удалось клонировать репозиторий."
-        error "Проверьте URL: $REPO_URL"
+        error "Не удалось клонировать репозиторий"
+        error ""
+        error "Возможные причины:"
+        error "  • Неверный URL: $REPO_URL"
+        error "  • Репозиторий не существует или приватный"
+        error "  • Нет подключения к GitHub"
+        error "  • Нет прав на запись в $INSTALL_DIR"
+        error ""
+        error "Проверьте:"
+        error "  • Правильность URL (должен быть https://...)"
+        error "  • Сетевое соединение: ping github.com"
+        error "  • Права на директорию: ls -la $(dirname $INSTALL_DIR)"
         exit 1
     fi
-fi
-
-# Создание базового Caddyfile если его нет
-if [ ! -f "caddy/Caddyfile" ]; then
-    log "Создание базового Caddyfile..."
-    mkdir -p caddy
-    cat > caddy/Caddyfile << EOF
-# Глобальные настройки
-{
-    email {$CADDY_EMAIL}
-    log {
-        output file /var/log/caddy/access.log
-        level INFO
-    }
-}
-
-{$CADDY_DOMAIN} {
-    # Reverse proxy к Marzban API
-    handle /api/* {
-        reverse_proxy marzban:8000
-    }
-
-    # Reverse proxy для прокси протоколов
-    handle /vmess/* {
-        reverse_proxy marzban:10000-10100
-    }
-
-    # Статические файлы
-    handle {
-        root * /usr/share/caddy/www
-        file_server
-    }
-
-    # Логи
-    log {
-        output file /var/log/caddy/error.log
-        level ERROR
-    }
-}
-EOF
 fi
 
 # Проверяем наличие .env.example
@@ -362,6 +280,100 @@ if [[ $setup_telegram =~ ^[Yy]$ ]]; then
 
     log "Telegram бот настроен"
 fi
+
+
+mkdir -p "$INSTALL_DIR/logs"  # Директория для симлинков
+
+# Создание директорий для логов в системе
+log "Создание директорий для логов..."
+mkdir -p /var/log/marzban
+mkdir -p /var/log/caddy
+
+# Настройка прав на директории логов
+chmod 755 /var/log/marzban
+chmod 755 /var/log/caddy
+
+# СОЗДАНИЕ СИМЛИНКОВ
+log "Создание симлинков для логов в $INSTALL_DIR/logs/..."
+
+# Удаляем старые симлинки если они существуют
+rm -f "$INSTALL_DIR/logs/marzban" 2>/dev/null
+rm -f "$INSTALL_DIR/logs/caddy" 2>/dev/null
+
+# Создаем новые симлинки
+ln -s /var/log/marzban "$INSTALL_DIR/logs/marzban"
+ln -s /var/log/caddy "$INSTALL_DIR/logs/caddy"
+
+# Проверка создания симлинков
+if [ -L "$INSTALL_DIR/logs/marzban" ] && [ -L "$INSTALL_DIR/logs/caddy" ]; then
+    log "Симлинки успешно созданы:"
+    log "  $INSTALL_DIR/logs/marzban -> /var/log/marzban"
+    log "  $INSTALL_DIR/logs/caddy -> /var/log/caddy"
+else
+    warn "Проблема при создании симлинков"
+fi
+
+# Создаем README в директории логов с пояснением
+cat > "$INSTALL_DIR/logs/README.md" << EOF
+# Директория логов
+
+Это симлинки на системные директории логов:
+
+- `marzban` -> `/var/log/marzban` - логи Marzban
+- `caddy` -> `/var/log/caddy` - логи Caddy
+
+Реальные логи хранятся в `/var/log/` для обеспечения:
+- Централизованного сбора логов
+- Правильной работы logrotate
+- Доступа для системных инструментов (fail2ban, auditd)
+
+Для просмотра логов используйте:
+\`\`\`bash
+# Через симлинки
+tail -f $INSTALL_DIR/logs/marzban/*.log
+tail -f $INSTALL_DIR/logs/caddy/*.log
+
+# Или напрямую
+tail -f /var/log/marzban/*.log
+tail -f /var/log/caddy/*.log
+\`\`\`
+EOF
+
+# Настройка ротации логов
+log "Настройка ротации логов..."
+cat > /etc/logrotate.d/marzban << EOF
+/var/log/marzban/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    sharedscripts
+    postrotate
+        [ -f /var/run/docker.pid ] && docker kill --signal=USR1 marzban 2>/dev/null || true
+    endscript
+}
+EOF
+
+cat > /etc/logrotate.d/caddy << EOF
+/var/log/caddy/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    sharedscripts
+    postrotate
+        [ -f /var/run/docker.pid ] && docker kill --signal=USR1 caddy 2>/dev/null || true
+    endscript
+}
+EOF
+
+
 
 # Запуск docker-compose
 log "Запуск docker-compose..."
