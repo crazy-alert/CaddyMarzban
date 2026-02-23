@@ -265,6 +265,7 @@ until docker exec mysql mysqladmin ping -h localhost --silent; do
     sleep 2
 done
 
+
 # Создание systemd сервиса
 log "Настройка автозапуска..."
 cat > /etc/systemd/system/caddy-marzban.service << EOF
