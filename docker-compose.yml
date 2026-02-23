@@ -4,19 +4,25 @@ services:
     restart: unless-stopped
     env_file: .env
     expose:
-      - "8000"   # API панели
-      - "1080"   # Shadowsocks
-      - "8443"   # Trojan/Shadowsocks+TLS
-      - "2096"   # Альтернативный
-      - "10000-10100"  # Диапазон для VMess/VLESS
+      - "8000"
+      - "1080"
+      - "8443"
+      - "2096"
+      - "10000-10100"
     volumes:
-      - ./marzban/main.py.patched:/code/main.py
-      - ./www:/www
-      - /var/lib/marzban:/var/lib/marzban
-      - ./marzban/logging.py:/app/logging.py
-      - /var/log/marzban:/var/log/marzban
+      - ./marzban/main.py.patched:/code/main.py          # Патч main.py
+      - /var/lib/marzban:/var/lib/marzban                # Данные
+      - /var/log/marzban:/var/log/marzban                # Логи
+      # Убрал сомнительные монтирования:
+      # - ./www:/www
+      # - ./marzban/logging.py:/app/logging.py
     networks:
       - internal
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8000/dashboard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   caddy:
     image: caddy:latest
@@ -25,20 +31,21 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "1080:1080"  # Shadowsocks через Caddy
-      - "8443:8443"  # Trojan через Caddy
-      - "2096:2096"  # Альтернативный через Caddy
-      - "10000-10100:10000-10100"  # Диапазон через Caddy
+      - "1080:1080"
+      - "8443:8443"
+      - "2096:2096"
+      - "10000-10100:10000-10100"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
-      - ./www:/var/www/html
-      - ./caddy/data:/data
-      - ./caddy/config:/config
+      - ./www:/var/www/html                              # файлы статичного сайта - заглушки
+      - caddy_data:/data
+      - caddy_config:/config
       - /var/log/caddy:/var/log/caddy
     networks:
       - internal
     depends_on:
-      - marzban
+      marzban:
+        condition: service_healthy
 
 volumes:
   caddy_data:

@@ -345,6 +345,7 @@ log "Настройка конфигурации..."
 # CADDY_DOMAIN
 read -p "Введите домен для Caddy (например, example.com): " CADDY_DOMAIN
 update_env_var "CADDY_DOMAIN" "$CADDY_DOMAIN" "Caddy domain"
+update_env_var "XRAY_SUBSCRIPTION_URL_PREFIX" "$CADDY_DOMAIN" "Префикс адреса подписки"
 
 # CADDY_EMAIL
 read -p "Введите email для Caddy (для SSL сертификатов): " CADDY_EMAIL
