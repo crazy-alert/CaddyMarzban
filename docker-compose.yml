@@ -11,8 +11,9 @@ services:
       - "10000-10100"
     volumes:
       - ./marzban/code/main.py.patched:/code/main.py            # Патч main.py
-      - ./marzban/code/db.sqlite3:/code/db.sqlite3              # <-- Сохраняем БД
-      - ./marzban/code/xray_config.json:/code/xray_config.json  # <-- Сохраняем конфиг
+      - ./marzban/code/:/code/
+    #      - ./marzban/code/db.sqlite3:/code/db.sqlite3              # <-- Сохраняем БД
+    #      - ./marzban/code/xray_config.json:/code/xray_config.json  # <-- Сохраняем конфиг
     networks:
       - internal
     healthcheck:
