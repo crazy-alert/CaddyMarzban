@@ -37,6 +37,7 @@
                        # Удаление заголовка сервера для маскировки
                        -Server
                        }
+
                  # Страница подписок Marzban
                  handle /sub/* {
                                 reverse_proxy marzban:8000
@@ -72,8 +73,8 @@
                                                             header_up Host {host}
                                                             header_up X-Real-IP {remote_host}
                                                             header_up X-Forwarded-For {remote_host}
-        }
-    }
+                                }
+                }
 
                 # gRPC (если используется)
                 handle /grpc-service/* {
@@ -83,6 +84,6 @@
                 # Обработка ошибок 404
                 handle_errors {
                               rewrite * /{err.status_code}.html
-                                                          file_server
+                              file_server
                               }
 }
