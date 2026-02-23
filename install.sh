@@ -259,7 +259,7 @@ docker-compose up -d
 
 # Ожидание готовности MySQL
 log "Ожидание готовности MySQL..."
-sleep 10
+sleep 2
 until docker exec mysql mysqladmin ping -h localhost --silent; do
     echo "Ожидание MySQL..."
     sleep 2
